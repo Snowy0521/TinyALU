@@ -3,6 +3,8 @@ from pyuvm import *
 import random
 from tinyalu_bfm import TinyAluBfm
 from cocotb.clock import Clock
+from cocotb_coverage.coverage import coverage_section, CoverPoint, CoverCross
+from cocotb_coverage.coverage import coverage_db
 
 # Define ALU operations as an enumeration
 class Ops(IntEnum):
@@ -12,6 +14,80 @@ class Ops(IntEnum):
     XOR  = 3
     MUL  = 4
 
+# 1. 定义采样装饰器
+alu_cov_obj = coverage_section(
+    CoverPoint("top.op", 
+               xf=lambda item: item.op, 
+               bins=list(Ops)), 
+
+    CoverPoint("top.aa", 
+               xf=lambda item: item.aa,  # 这里从 a 改为 aa
+               bins=[0, 1, 127, 128, 254, 255]),
+    
+    CoverPoint("top.bb", 
+               xf=lambda item: item.bb,  # 这里从 b 改为 bb
+               bins=[0, 1, 127, 128, 254, 255]),
+    
+    CoverCross("top.op_cross_aa", 
+               items=["top.op", "top.aa"])
+)
+
+
+def sample_func(item):
+    return item
+
+sample_alu_coverage = alu_cov_obj(sample_func)
+
+class AluCoverage(uvm_subscriber):
+    """Coverage collector: collects coverage data for ALU operations and operand combinations"""
+    def __init__(self, name, parent):
+        super().__init__(name, parent)
+    
+    def write(self, item):
+        """Called by the monitor to sample coverage for each transaction"""
+        sample_alu_coverage(item)  # Sample the coverage with the transaction item
+
+    def report_phase(self):
+        print("\n" + "=" * 60)
+        print("ALU FUNCTIONAL COVERAGE REPORT")
+        print("=" * 60)
+        
+        try:
+            # Print overall coverage
+            total_bins = 0
+            covered_bins = 0
+            
+            # Iterate through all coverage points
+            for cover_point in coverage_db:
+                cp_name = cover_point
+                cp_size = coverage_db[cover_point].size
+                cp_coverage = coverage_db[cover_point].coverage
+                cp_detailed_coverage = coverage_db[cover_point].detailed_coverage
+                
+                total_bins += cp_size
+                covered_bins += cp_coverage
+                
+                percentage = (cp_coverage / cp_size * 100) if cp_size > 0 else 0
+                print(f"{cp_name:30} : {percentage:6.2f}% ({cp_coverage}/{cp_size})")
+                
+                # Print detailed bin coverage for each cover point
+                if hasattr(coverage_db[cover_point], 'bins') and len(coverage_db[cover_point].bins) < 20:
+                    for bin_name, bin_hit in cp_detailed_coverage.items():
+                        status = "HIT" if bin_hit > 0 else "MISS"
+                        print(f"  {str(bin_name):25} : {status:4} (hits: {bin_hit})")
+            
+            # Print total coverage
+            print("-" * 60)
+            overall_percentage = (covered_bins / total_bins * 100) if total_bins > 0 else 0
+            print(f"{'OVERALL COVERAGE':30} : {overall_percentage:6.2f}% ({covered_bins}/{total_bins})")
+            
+        except Exception as e:
+            print(f"Error accessing coverage: {e}")
+            print("Attempting alternative method...")
+        
+        print("=" * 60 + "\n")
+
+    
 class AluSeqItem(uvm_sequence_item):
     """ALU transaction item"""
     def __init__(self, name, op, aa, bb):
@@ -26,14 +102,20 @@ class AluSeqItem(uvm_sequence_item):
 
 class AluSeq(uvm_sequence):
     """ALU sequence: generates random transactions"""
-    num_items = 10
+    num_items = 200
     async def body(self):
         print("\n" + "=" * 60)
         print(f"SEQUENCE: Generating {self.num_items} random transactions")
         print("=" * 60)
         
         for i in range(self.num_items):
-            op = random.choices(list(Ops)[1:], weights=[0.3, 0.3, 0.2, 0.2])[0] # Exclude NOOP from random ops
+            if random.random() < 0.08:          # 8% 概率发 NOOP
+                op = Ops.NOOP
+            else:
+                op = random.choices(
+                    list(Ops)[1:],
+                    weights=[0.3, 0.3, 0.2, 0.2]   # 在非 NOOP 中保持原比例
+                )[0]
             aa = random.choice([0x00, 0xFF, random.randint(1, 0xFE)]) # Random A with edge cases prioritized
             bb = random.choice([0x00, 0xFF, random.randint(1, 0xFE)])
             item = AluSeqItem(f"item_{i}", op, aa, bb)
@@ -53,7 +135,6 @@ class AluDriver(uvm_driver):
     """Driver: drives transactions to the DUT using BFM"""
     def build_phase(self):
         super().build_phase()
-        self.ap = uvm_analysis_port("ap", self) # Analysis port to send results to scoreboard
 
         # Obtain BFM reference from uvm_root
         if hasattr(uvm_root(), '_bfm'):
@@ -73,8 +154,7 @@ class AluDriver(uvm_driver):
             # Use BFM to send the operation and get the result
             try:
                 result = await self.bfm.send_op(item.op.value, item.aa, item.bb)
-                item.result = result
-                self.ap.write(item)  
+                item.result = result 
             except Exception as e:
                 self.logger.error(f"Error in send_op: {e}")
                 item.result = 0
@@ -91,35 +171,28 @@ class AluScoreboard(uvm_scoreboard):
     
     def build_phase(self):
         super().build_phase()
-        self.driver_fifo = uvm_tlm_analysis_fifo("driver_fifo", self) # FIFO to receive items from the driver
         self.monitor_fifo = uvm_tlm_analysis_fifo("monitor_fifo", self)
-        self.driver_export = self.driver_fifo.analysis_export
         self.monitor_export = self.monitor_fifo.analysis_export
 
     async def run_phase(self):
         while True:
-            driver_item = await self.driver_fifo.get()
             monitor_item = await self.monitor_fifo.get()
-            
-            self.compare_items(driver_item, monitor_item)
-    
-    def compare_items(self, d_item, m_item):
-        if d_item.op == Ops.NOOP:
+            self.check_result(monitor_item)
+
+    def check_result(self, item):
+        """Check a single monitored transaction"""
+        if item.op == Ops.NOOP:
             return
 
-        # Expected value calculation based on driver item
-        expected = self.calculate_expected(d_item)
-        
-        # Actual value from monitor item
-        actual = m_item.result
+        expected = self.calculate_expected(item)
+        actual = item.result
 
-        # Compare and log results
         if actual != expected:
-            self.logger.error(f"FAIL: {d_item.op.name} A=0x{d_item.aa:02x} B=0x{d_item.bb:02x} "
+            self.logger.error(f"FAIL: {item.op.name} A=0x{item.aa:02x} B=0x{item.bb:02x} "
                               f"Got=0x{actual:04x} Exp=0x{expected:04x}")
             self.failed += 1
         else:
-            self.logger.info(f"PASS: {d_item.op.name} A=0x{d_item.aa:02x} B=0x{d_item.bb:02x} Result=0x{actual:04x}")
+            self.logger.info(f"PASS: {item.op.name} A=0x{item.aa:02x} B=0x{item.bb:02x} Result=0x{actual:04x}")
             self.passed += 1
 
     def calculate_expected(self, item):
@@ -187,10 +260,11 @@ class AluEnv(uvm_env):
     def build_phase(self):
         self.agent = AluAgent("agent", self)
         self.scoreboard = AluScoreboard("scoreboard", self)
+        self.coverage = AluCoverage("coverage", self)
     
     def connect_phase(self):
-        self.agent.driver.ap.connect(self.scoreboard.driver_export)
         self.agent.monitor.ap.connect(self.scoreboard.monitor_export)
+        self.agent.monitor.ap.connect(self.coverage.analysis_export) # Connect monitor to coverage collector
 
 class AluTest(uvm_test):
     """Test: top-level test class, runs the sequence and manages the environment"""

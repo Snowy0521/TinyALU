@@ -1,6 +1,0 @@
-<testsuites name="results">
-  <testsuite name="all" package="all">
-    <property name="random_seed" value="1771186297" />
-    <testcase name="test_tinyalu" classname="test_tinyalu" file="/home/zhang/TinyALU/tests/test_tinyalu.py" lineno="217" time="0.006535530090332031" sim_time_ns="410.0" ratio_time="62734.00846344666" />
-  </testsuite>
-</testsuites>
