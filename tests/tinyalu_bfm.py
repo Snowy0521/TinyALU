@@ -1,10 +1,14 @@
 import cocotb
 from cocotb.triggers import RisingEdge, ClockCycles
+from cocotb.queue import Queue
 
 class TinyAluBfm:
     def __init__(self, dut):
         self.dut = dut
         print("BFM initialized with DUT:", dut)
+        self._driver_queue  = Queue()
+        self._monitor_queue = Queue()
+        cocotb.start_soon(self._monitor_loop())  # 后台持续监测 done
 
     async def reset(self):
         print("Starting reset...")
@@ -14,7 +18,7 @@ class TinyAluBfm:
         await RisingEdge(self.dut.clk) # Ensure reset is released on a clock edge
         print("Reset completed")
     
-
+    # ── Driver 调用：只负责驱动激励 ──────────────────────────
     async def send_op(self, op, aa, bb):
         print(f"BFM: Sending op={op}, A=0x{aa:02x}, B=0x{bb:02x}")
         self.dut.op.value = op
@@ -31,30 +35,28 @@ class TinyAluBfm:
             print(f"BFM: NOOP operation, returning 0")
             return 0
         
-        # Wait for done signal with a timeout
-        timeout = 100 if op == 4 else 20  # MUL might take longer, so we give it more time
-        for cycle in range(timeout):
-            await RisingEdge(self.dut.clk)  # Ensure we check done on clock edges
-            if self.dut.done.value == 1:
-                result = int(self.dut.result.value)
-                print(f"BFM: Got result=0x{result:04x} after {cycle+1} cycles")
-                self.dut.start.value = 0
-                await RisingEdge(self.dut.clk)
-                return result
-        
-        # Timeout handling
-        self.dut.start.value = 0
-        print(f"BFM: TIMEOUT after {timeout} cycles!")
-        print(f"BFM: Current signals - start={self.dut.start.value}, done={self.dut.done.value}, op={self.dut.op.value}")
-        raise RuntimeError("Done timeout")
+        # 等待后台 monitor_loop 把结果放进队列
+        # 等待 _monitor_loop 把结果放进队列
+        data = await self._driver_queue.get()
 
+        self.dut.start.value = 0
+        await RisingEdge(self.dut.clk)
+        return data['result']
+
+    # ── Monitor 调用：只负责观测 ─────────────────────────────
     async def get_result(self):
-        await RisingEdge(self.dut.done)
-        
-        data = {
-            'op':     int(self.dut.op.value),
-            'aa':     int(self.dut.A.value),
-            'bb':     int(self.dut.B.value),
-            'result': int(self.dut.result.value)
-        }
-        return data
+        return await self._monitor_queue.get()  # 阻塞直到有数据
+    
+    # ── 后台协程：持续检测 done，写入队列 ────────────────────
+    async def _monitor_loop(self):
+        while True:
+            await RisingEdge(self.dut.clk)
+            if self.dut.done.value == 1:
+                data = {
+                    'op':     int(self.dut.op.value),
+                    'aa':     int(self.dut.A.value),
+                    'bb':     int(self.dut.B.value),
+                    'result': int(self.dut.result.value)
+                }
+                await self._driver_queue.put(data) # 将结果放入队列供 driver 获取
+                await self._monitor_queue.put(data) # 将结果放入队列供 monitor 获取
