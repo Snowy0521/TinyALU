@@ -102,7 +102,9 @@ class AluSeqItem(uvm_sequence_item):
 
 class AluSeq(uvm_sequence):
     """ALU sequence: generates random transactions"""
-    num_items = 200
+    num_items = 1000
+    AA_BINS = [0, 1, 127, 128, 254, 255]
+    BB_BINS = [0, 1, 127, 128, 254, 255]
     async def body(self):
         print("\n" + "=" * 60)
         print(f"SEQUENCE: Generating {self.num_items} random transactions")
@@ -111,13 +113,19 @@ class AluSeq(uvm_sequence):
         for i in range(self.num_items):
             if random.random() < 0.08:          # 8% 概率发 NOOP
                 op = Ops.NOOP
+                aa = random.choice(self.AA_BINS)
+                bb = random.choice(self.BB_BINS)
             else:
                 op = random.choices(
                     list(Ops)[1:],
                     weights=[0.3, 0.3, 0.2, 0.2]   # 在非 NOOP 中保持原比例
                 )[0]
-            aa = random.choice([0x00, 0xFF, random.randint(1, 0xFE)]) # Random A with edge cases prioritized
-            bb = random.choice([0x00, 0xFF, random.randint(1, 0xFE)])
+            if random.random() < 0.7:
+                aa = random.choice(self.AA_BINS)
+                bb = random.choice(self.BB_BINS)
+            else:
+                aa = random.randint(0, 0xFF)
+                bb = random.randint(0, 0xFF)
             item = AluSeqItem(f"item_{i}", op, aa, bb)
             
             print(f"\n[{i}] Sending: op={op.name:4s} A=0x{aa:02x} B=0x{bb:02x}")

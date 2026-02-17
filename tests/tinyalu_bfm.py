@@ -20,7 +20,6 @@ class TinyAluBfm:
     
     # ── Driver 调用：只负责驱动激励 ──────────────────────────
     async def send_op(self, op, aa, bb):
-        print(f"BFM: Sending op={op}, A=0x{aa:02x}, B=0x{bb:02x}")
         self.dut.op.value = op
         self.dut.A.value = aa
         self.dut.B.value = bb
@@ -29,10 +28,16 @@ class TinyAluBfm:
         await RisingEdge(self.dut.clk) # Ensure start is registered on a clock edge
         
         # NOOP Operation special case
-        if op == 0:  # NOOP
+        if op == 0:
             self.dut.start.value = 0
-            await RisingEdge(self.dut.clk) # Ensure start is deasserted on a clock edge
-            print(f"BFM: NOOP operation, returning 0")
+            await RisingEdge(self.dut.clk)
+            noop_data = {
+                'op':     0,
+                'aa':     int(self.dut.A.value),
+                'bb':     int(self.dut.B.value),
+                'result': 0
+            }
+            await self._monitor_queue.put(noop_data)  # 手动通知 Monitor
             return 0
         
         # 等待后台 monitor_loop 把结果放进队列
@@ -49,14 +54,20 @@ class TinyAluBfm:
     
     # ── 后台协程：持续检测 done，写入队列 ────────────────────
     async def _monitor_loop(self):
+        prev_done = 0
         while True:
             await RisingEdge(self.dut.clk)
-            if self.dut.done.value == 1:
+            curr_done = int(self.dut.done.value)
+            
+            # 只在 done 上升沿采样一次，不重复
+            if curr_done == 1 and prev_done == 0:
                 data = {
                     'op':     int(self.dut.op.value),
                     'aa':     int(self.dut.A.value),
                     'bb':     int(self.dut.B.value),
                     'result': int(self.dut.result.value)
                 }
-                await self._driver_queue.put(data) # 将结果放入队列供 driver 获取
-                await self._monitor_queue.put(data) # 将结果放入队列供 monitor 获取
+                await self._driver_queue.put(data)
+                await self._monitor_queue.put(data)
+            
+            prev_done = curr_done
