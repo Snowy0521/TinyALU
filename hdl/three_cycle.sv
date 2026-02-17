@@ -10,6 +10,15 @@ module three_cycle (
     logic [7:0]  a_q, b_q;
     logic [15:0] mult1, mult2;
     logic        done1, done2, done3, done_q;
+    logic        start_r; 
+
+    // 检测 start 上升沿，生成单周期脉冲
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) start_r <= '0;
+        else        start_r <= start;
+    end
+
+    wire start_pulse = start & ~start_r; 
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -30,7 +39,8 @@ module three_cycle (
             mult2 <= mult1;
             result <= mult2;
 
-            done1  <= start && !done_q;
+            // 用 start_pulse 替代 start && !done_q，只在上升沿触发一次
+            done1  <= start_pulse;
             done2  <= done1  && !done_q;
             done3  <= done2  && !done_q;
             done_q <= done3  && !done_q;
