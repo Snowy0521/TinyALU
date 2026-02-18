@@ -100,11 +100,95 @@ class AluSeqItem(uvm_sequence_item):
     def __str__(self):
         return f"{self.get_name()} : op={self.op.name} aa=0x{self.aa:02x} bb=0x{self.bb:02x} result=0x{self.result:04x}"
 
-class AluSeq(uvm_sequence):
-    """ALU sequence: generates random transactions"""
-    num_items = 1000
-    AA_BINS = [0, 1, 127, 128, 254, 255]
-    BB_BINS = [0, 1, 127, 128, 254, 255]
+# Define bins for operand values, focusing on edge cases and typical values
+AA_BINS = [0, 1, 127, 128, 254, 255]
+BB_BINS = [0, 1, 127, 128, 254, 255]
+
+# Simple helper function to send a single item through the sequence, used for testing
+async def send_item(seq, i, op, aa, bb):
+    item = AluSeqItem(f"item_{i}", op, aa, bb)
+    print(f"\n[{i}] Sending: op={op.name:4s} A=0x{aa:02x} B=0x{bb:02x}")
+    await seq.start_item(item)
+    await seq.finish_item(item)
+    print(f"[{i}] Result:  0x{item.result:04x}")
+    return item
+
+
+class SmokeSeq(uvm_sequence):
+    """Smoke sequence: sends a small number of fixed transactions to quickly check basic functionality"""
+    async def body(self):
+        print("\n" + "=" * 60)
+        print("SEQUENCE: SmokeSeq")
+        print("=" * 60)
+        cases = [
+            (Ops.NOOP, 0x00, 0x00),
+            (Ops.ADD,  0x01, 0x02),
+            (Ops.AND,  0xFF, 0x0F),
+            (Ops.XOR,  0xAA, 0x55),
+            (Ops.MUL,  0x0F, 0x0F),
+        ]
+        for i, (op, aa, bb) in enumerate(cases):
+            await send_item(self, i, op, aa, bb)
+
+
+class BoundarySeq(uvm_sequence):
+    """Boundary sequence: tests edge cases and boundary conditions for ALU operations"""
+    async def body(self):
+        print("\n" + "=" * 60)
+        print("SEQUENCE: BoundarySeq")
+        print("=" * 60)
+        i = 0
+        for op in list(Ops):
+            for aa in AA_BINS:
+                for bb in BB_BINS:
+                    await send_item(self, i, op, aa, bb)
+                    i += 1
+
+class BackToBackSeq(uvm_sequence):
+    """Back-to-back sequence: sends a mix of operations in quick succession to test pipeline and timing behavior"""
+    num_items = 20
+    async def body(self):
+        print("\n" + "=" * 60)
+        print("SEQUENCE: BackToBackSeq")
+        print("=" * 60)
+        for i in range(self.num_items):
+            op = random.choice([Ops.ADD, Ops.MUL])   
+            aa = random.choice(AA_BINS)
+            bb = random.choice(BB_BINS)
+            await send_item(self, i, op, aa, bb)
+
+class ResetSeq(uvm_sequence):
+    """Reset sequence: tests behavior when reset is asserted in the middle of operations and immediately after reset"""
+    async def body(self):
+        print("\n" + "=" * 60)
+        print("SEQUENCE: ResetSeq")
+        print("=" * 60)
+
+        bfm = uvm_root()._bfm
+
+        # 场景1：MUL 中途复位
+        print("[ResetSeq] Scenario 1: Reset during MUL operation")
+        item = AluSeqItem("reset_mid", Ops.MUL, 0xFF, 0xFF)
+        await self.start_item(item)
+        await self.finish_item(item)
+        await bfm.reset()                              
+        await bfm.check_reset_state()
+
+        # 场景2：复位后立刻发送 ADD
+        print("\n[ResetSeq] Scenario 2: Send ADD immediately after reset")
+        await send_item(self, 0, Ops.ADD, 0x01, 0x01)
+
+        # 场景3：连续多次复位
+        print("\n[ResetSeq] Scenario 3: Continuous resets")
+        for _ in range(3):
+            await bfm.reset()
+        await send_item(self, 1, Ops.AND, 0xFF, 0xFF)
+
+
+class RandomSeq(uvm_sequence):
+    """Random sequence: generates random transactions"""
+    num_items = 200
+
     async def body(self):
         print("\n" + "=" * 60)
         print(f"SEQUENCE: Generating {self.num_items} random transactions")
@@ -113,28 +197,21 @@ class AluSeq(uvm_sequence):
         for i in range(self.num_items):
             if random.random() < 0.08:          # 8% 概率发 NOOP
                 op = Ops.NOOP
-                aa = random.choice(self.AA_BINS)
-                bb = random.choice(self.BB_BINS)
+                aa = random.choice(AA_BINS)
+                bb = random.choice(BB_BINS)
             else:
                 op = random.choices(
                     list(Ops)[1:],
                     weights=[0.3, 0.3, 0.2, 0.2]   # 在非 NOOP 中保持原比例
                 )[0]
-            if random.random() < 0.7:
-                aa = random.choice(self.AA_BINS)
-                bb = random.choice(self.BB_BINS)
-            else:
-                aa = random.randint(0, 0xFF)
-                bb = random.randint(0, 0xFF)
-            item = AluSeqItem(f"item_{i}", op, aa, bb)
+                if random.random() < 0.7:
+                    aa = random.choice(AA_BINS)
+                    bb = random.choice(BB_BINS)
+                else:
+                    aa = random.randint(0, 0xFF)
+                    bb = random.randint(0, 0xFF)
+            await send_item(self, i, op, aa, bb)
             
-            print(f"\n[{i}] Sending: op={op.name:4s} A=0x{aa:02x} B=0x{bb:02x}")
-            
-            await self.start_item(item)
-            await self.finish_item(item)
-            
-            print(f"[{i}] Result:  0x{item.result:04x}")
-        
         print("\n" + "=" * 60)
         print("SEQUENCE: All transactions completed")
         print("=" * 60 + "\n")
@@ -282,17 +359,22 @@ class AluTest(uvm_test):
     async def run_phase(self):
         self.raise_objection()
         
-        print("\n" + "=" * 60)
-        print("TEST: Running main sequence")
-        print("=" * 60)
-        
-        # Start the main sequence
-        seq = AluSeq("main_seq")
-        await seq.start(self.env.agent.seqr)
-        
-        print("\n" + "=" * 60)
-        print("TEST: Sequence completed")
-        print("=" * 60)
+        seqr = self.env.agent.seqr
+
+        #print("\n[TEST] Phase 1: Smoke")
+        #await SmokeSeq("smoke").start(seqr)
+
+        #print("\n[TEST] Phase 2: Boundary")
+        #await BoundarySeq("boundary").start(seqr)
+
+        #print("\n[TEST] Phase 3: BackToBack")
+        #await BackToBackSeq("b2b").start(seqr)
+
+        #print("\n[TEST] Phase 4: Reset")
+        #await ResetSeq("reset").start(seqr)
+
+        print("\n[TEST] Phase 5: Random")
+        await RandomSeq("random").start(seqr)
         
         self.drop_objection()
 

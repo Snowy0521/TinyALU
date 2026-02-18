@@ -71,3 +71,30 @@ class TinyAluBfm:
                 await self._monitor_queue.put(data)
             
             prev_done = curr_done
+    
+    async def check_reset_state(self):
+        """Check that done and result are 0 after reset, and no X/Z states."""
+        # 等一拍让信号稳定
+        await RisingEdge(self.dut.clk)
+
+        errors = []
+
+        if int(self.dut.done.value) != 0:
+            errors.append(f"done should be 0, but is {self.dut.done.value}")
+
+        if int(self.dut.result.value) != 0:
+            errors.append(f"result should be 0, but is {self.dut.result.value}")
+
+        # 检查 X/Z 态
+        if not self.dut.done.value.is_resolvable:
+            errors.append(f"done occurs X/Z state: {self.dut.done.value}")
+
+        if not self.dut.result.value.is_resolvable:
+            errors.append(f"result occurs X/Z state: {self.dut.result.value}")
+
+        if errors:
+            for e in errors:
+                print(f"[RESET CHECK] FAIL: {e}")
+            raise RuntimeError("Reset state check failed")
+        else:
+            print("[RESET CHECK] PASS: done=0, result=0, no X/Z states")
