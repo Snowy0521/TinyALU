@@ -105,12 +105,27 @@ AA_BINS = [0, 1, 127, 128, 254, 255]
 BB_BINS = [0, 1, 127, 128, 254, 255]
 
 # Simple helper function to send a single item through the sequence, used for testing
+def calc_expected(op, aa, bb):
+    if op == Ops.ADD:
+        return (aa + bb) & 0xFFFF
+    if op == Ops.AND:
+        return aa & bb
+    if op == Ops.XOR:
+        return aa ^ bb
+    if op == Ops.MUL:
+        return (aa * bb) & 0xFFFF
+    return 0
+
 async def send_item(seq, i, op, aa, bb):
     item = AluSeqItem(f"item_{i}", op, aa, bb)
     print(f"\n[{i}] Sending: op={op.name:4s} A=0x{aa:02x} B=0x{bb:02x}")
     await seq.start_item(item)
     await seq.finish_item(item)
     print(f"[{i}] Result:  0x{item.result:04x}")
+    expected = calc_expected(op, aa, bb)
+    status = "PASS" if item.result == expected else "FAIL"
+    print(f"[{i}] {status}:   op={op.name:4s} A=0x{aa:02x} B=0x{bb:02x} "
+          f"Got=0x{item.result:04x} Exp=0x{expected:04x}")
     return item
 
 
@@ -240,6 +255,7 @@ class AluDriver(uvm_driver):
             try:
                 result = await self.bfm.send_op(item.op.value, item.aa, item.bb)
                 item.result = result 
+                self.logger.info(f"Driver sent: op={item.op.name} aa=0x{item.aa:02x} bb=0x{item.bb:02x} result=0x{item.result:04x}")
             except Exception as e:
                 self.logger.error(f"Error in send_op: {e}")
                 item.result = 0
@@ -277,15 +293,10 @@ class AluScoreboard(uvm_scoreboard):
                               f"Got=0x{actual:04x} Exp=0x{expected:04x}")
             self.failed += 1
         else:
-            self.logger.info(f"PASS: {item.op.name} A=0x{item.aa:02x} B=0x{item.bb:02x} Result=0x{actual:04x}")
             self.passed += 1
 
     def calculate_expected(self, item):
-        if item.op == Ops.ADD: return (item.aa + item.bb) & 0xFFFF
-        if item.op == Ops.AND: return item.aa & item.bb
-        if item.op == Ops.XOR: return item.aa ^ item.bb
-        if item.op == Ops.MUL: return (item.aa * item.bb) & 0xFFFF
-        return 0
+        return calc_expected(item.op, item.aa, item.bb)
 
     def report_phase(self):
         """final report"""
@@ -321,9 +332,24 @@ class AluMonitor(uvm_component):
         self.logger.info("Monitor run_phase started")
         while True:
             obs_data = await self.bfm.get_result()
+            op = Ops(obs_data['op'])
+
+            if op == Ops.NOOP:
+                if obs_data.get('done_width', 0) != 0:
+                    self.logger.error("NOOP should never drive done high")
+            else:
+                expected_latency = 3 if op == Ops.MUL else 1
+                actual_latency = obs_data.get('latency')
+                if actual_latency != expected_latency:
+                    self.logger.error(
+                        f"Timing FAIL: {op.name} expected latency={expected_latency}, got latency={actual_latency}"
+                    )
+
+                if obs_data.get('done_width', 1) != 1:
+                    self.logger.error(f"done pulse width FAIL: {op.name} width={obs_data.get('done_width')}")
 
             item = AluSeqItem("mon_item", 
-                              Ops(obs_data['op']), 
+                              op,
                               obs_data['aa'], 
                               obs_data['bb'])
             item.result = obs_data['result']
