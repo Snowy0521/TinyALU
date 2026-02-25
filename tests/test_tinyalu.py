@@ -21,15 +21,34 @@ alu_cov_obj = coverage_section(
                bins=list(Ops)), 
 
     CoverPoint("top.aa", 
-               xf=lambda item: item.aa,  # 这里从 a 改为 aa
+               xf=lambda item: item.aa,  
                bins=[0, 1, 127, 128, 254, 255]),
     
     CoverPoint("top.bb", 
-               xf=lambda item: item.bb,  # 这里从 b 改为 bb
+               xf=lambda item: item.bb, 
                bins=[0, 1, 127, 128, 254, 255]),
+
+    CoverPoint("top.add_carry",
+               xf=lambda item: ((item.aa + item.bb) > 0xFF) if item.op == Ops.ADD else None,
+               bins=[True, False]),
+
+    CoverPoint("top.mul_high_byte_nonzero",
+               xf=lambda item: ((item.aa * item.bb) > 0xFF) if item.op == Ops.MUL else None,
+               bins=[True, False]),
+
+    CoverPoint("top.and_zero",
+               xf=lambda item: ((item.aa & item.bb) == 0) if item.op == Ops.AND else None,
+               bins=[True, False]),
+
+    CoverPoint("top.xor_same",
+               xf=lambda item: (item.aa == item.bb) if item.op == Ops.XOR else None,
+               bins=[True, False]),
     
     CoverCross("top.op_cross_aa", 
-               items=["top.op", "top.aa"])
+               items=["top.op", "top.aa"]),
+
+    CoverCross("top.op_cross_aa_bb", 
+               items=["top.op", "top.aa", "top.bb"])
 )
 
 
@@ -46,6 +65,22 @@ class AluCoverage(uvm_subscriber):
     def write(self, item):
         """Called by the monitor to sample coverage for each transaction"""
         sample_alu_coverage(item)  # Sample the coverage with the transaction item
+
+    @staticmethod
+    def get_overall_coverage():
+        total_bins = 0
+        covered_bins = 0
+        for cover_point in coverage_db:
+            cp = coverage_db[cover_point]
+            total_bins += cp.size
+            covered_bins += cp.coverage
+        percentage = (covered_bins / total_bins * 100) if total_bins > 0 else 0.0
+        return covered_bins, total_bins, percentage
+
+    @classmethod
+    def coverage_closure(cls):
+        covered_bins, total_bins, _ = cls.get_overall_coverage()
+        return total_bins > 0 and covered_bins == total_bins
 
     def report_phase(self):
         print("\n" + "=" * 60)
@@ -202,7 +237,7 @@ class ResetSeq(uvm_sequence):
 
 class RandomSeq(uvm_sequence):
     """Random sequence: generates random transactions"""
-    num_items = 200
+    num_items = 0
 
     async def body(self):
         print("\n" + "=" * 60)
@@ -386,6 +421,8 @@ class AluTest(uvm_test):
         self.raise_objection()
         
         seqr = self.env.agent.seqr
+        max_iters = 30
+        batch_items = 100
 
         #print("\n[TEST] Phase 1: Smoke")
         #await SmokeSeq("smoke").start(seqr)
@@ -399,8 +436,25 @@ class AluTest(uvm_test):
         #print("\n[TEST] Phase 4: Reset")
         #await ResetSeq("reset").start(seqr)
 
-        print("\n[TEST] Phase 5: Random")
-        await RandomSeq("random").start(seqr)
+        print("\n[TEST] Phase 5: Random with coverage closure")
+        iteration = 0
+        while not AluCoverage.coverage_closure():
+            iteration += 1
+            if iteration > max_iters:
+                self.logger.error(
+                    f"Coverage did not converge after {max_iters} iterations"
+                )
+                break
+
+            seq = RandomSeq(f"random_{iteration}")
+            seq.num_items = batch_items
+            await seq.start(seqr)
+
+            covered_bins, total_bins, percentage = AluCoverage.get_overall_coverage()
+            self.logger.info(
+                f"Coverage after iter {iteration}: "
+                f"{percentage:.2f}% ({covered_bins}/{total_bins})"
+            )
         
         self.drop_objection()
 
