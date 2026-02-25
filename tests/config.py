@@ -1,5 +1,9 @@
 from alu_common import Ops
 
+AGENT_MODE_ACTIVE = "active"
+AGENT_MODE_PASSIVE = "passive"
+AGENT_MODE = AGENT_MODE_ACTIVE
+
 
 AA_BINS = [0, 1, 127, 128, 254, 255]
 BB_BINS = [0, 1, 127, 128, 254, 255]

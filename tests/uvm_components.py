@@ -12,7 +12,13 @@ from pyuvm import (
 )
 
 from alu_common import AluSeqItem, Ops, calc_expected
-from config import MAX_COVERAGE_ITERS, RANDOM_SEQ_BATCH_ITEMS
+from config import (
+    AGENT_MODE,
+    AGENT_MODE_ACTIVE,
+    AGENT_MODE_PASSIVE,
+    MAX_COVERAGE_ITERS,
+    RANDOM_SEQ_BATCH_ITEMS,
+)
 from coverage_model import AluCoverage
 from sequences import RandomSeq
 
@@ -136,13 +142,28 @@ class AluMonitor(uvm_component):
 
 
 class AluAgent(uvm_agent):
+    def is_active_mode(self):
+        mode = str(AGENT_MODE).lower()
+        if mode not in (AGENT_MODE_ACTIVE, AGENT_MODE_PASSIVE):
+            raise ValueError(
+                f"Invalid AGENT_MODE={AGENT_MODE}. "
+                f"Use {AGENT_MODE_ACTIVE!r} or {AGENT_MODE_PASSIVE!r}."
+            )
+        return mode == AGENT_MODE_ACTIVE
+
     def build_phase(self):
-        self.seqr = uvm_sequencer("seqr", self)
-        self.driver = AluDriver("driver", self)
+        self.seqr = None
+        self.driver = None
         self.monitor = AluMonitor("monitor", self)
+        if self.is_active_mode():
+            self.seqr = uvm_sequencer("seqr", self)
+            self.driver = AluDriver("driver", self)
+        else:
+            self.logger.info("AluAgent in passive mode: monitor-only")
 
     def connect_phase(self):
-        self.driver.seq_item_port.connect(self.seqr.seq_item_export)
+        if self.is_active_mode():
+            self.driver.seq_item_port.connect(self.seqr.seq_item_export)
 
 
 class AluEnv(uvm_env):
@@ -162,6 +183,11 @@ class AluTest(uvm_test):
 
     async def run_phase(self):
         self.raise_objection()
+
+        if not self.env.agent.is_active_mode():
+            self.logger.info("Passive agent mode: skipping sequence-driven stimulus")
+            self.drop_objection()
+            return
 
         seqr = self.env.agent.seqr
         print("\n[TEST] Phase 5: Random with coverage closure")
