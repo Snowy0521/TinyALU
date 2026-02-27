@@ -1,10 +1,10 @@
 from pyuvm import (
+    ConfigDB,
     uvm_agent,
     uvm_analysis_port,
     uvm_component,
     uvm_driver,
     uvm_env,
-    uvm_root,
     uvm_scoreboard,
     uvm_sequencer,
     uvm_test,
@@ -28,12 +28,8 @@ class AluDriver(uvm_driver):
 
     def build_phase(self):
         super().build_phase()
-        if hasattr(uvm_root(), "_bfm"):
-            self.bfm = uvm_root()._bfm
-            self.logger.info("Got BFM from uvm_root()._bfm")
-        else:
-            self.logger.error("BFM not found in uvm_root()._bfm")
-            raise Exception("BFM not found")
+        self.bfm = ConfigDB().get(self, "", "BFM")
+        self.logger.info("Got BFM from ConfigDB key 'BFM'")
 
     async def run_phase(self):
         self.logger.info("Driver run_phase started")
@@ -107,12 +103,8 @@ class AluMonitor(uvm_component):
         self.ap = uvm_analysis_port("ap", self)
 
     def build_phase(self):
-        if hasattr(uvm_root(), "_bfm"):
-            self.bfm = uvm_root()._bfm
-            self.logger.info("Monitor got BFM from uvm_root()._bfm")
-        else:
-            self.logger.error("Monitor could not find BFM in uvm_root()._bfm")
-            raise Exception("BFM not found for Monitor")
+        self.bfm = ConfigDB().get(self, "", "BFM")
+        self.logger.info("Monitor got BFM from ConfigDB key 'BFM'")
 
     async def run_phase(self):
         self.logger.info("Monitor run_phase started")

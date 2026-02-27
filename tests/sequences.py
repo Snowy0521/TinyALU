@@ -1,6 +1,6 @@
 import random
 
-from pyuvm import uvm_root, uvm_sequence
+from pyuvm import ConfigDB, uvm_sequence
 
 from alu_common import AluSeqItem, Ops, calc_expected
 from config import (
@@ -85,7 +85,7 @@ class ResetSeq(uvm_sequence):
         print("SEQUENCE: ResetSeq")
         print("=" * 60)
 
-        bfm = uvm_root()._bfm
+        bfm = ConfigDB().get(self, "", "BFM")
 
         print("[ResetSeq] Scenario 1: Reset during MUL operation")
         item = AluSeqItem("reset_mid", Ops.MUL, 0xFF, 0xFF)

@@ -1,6 +1,6 @@
 import cocotb
 from cocotb.clock import Clock
-from pyuvm import uvm_root
+from pyuvm import ConfigDB, uvm_root
 
 from tinyalu_bfm import TinyAluBfm
 from uvm_components import AluTest
@@ -18,21 +18,18 @@ async def test_tinyalu(dut):
     print("=" * 70 + "\n")
 
     clock = Clock(dut.clk, 10, unit="ns")
-    cocotb.start_soon(clock.start())
+    cocotb.start_soon(clock.start()) # background continuous clock generation
     print("Clock started (10ns period, 100MHz)")
 
     bfm = TinyAluBfm(dut)
     await bfm.reset()
     print("DUT reset completed")
 
-    uvm_root()._bfm = bfm
-    print("BFM stored in uvm_root()._bfm")
-
-    # Ensure UVM test class is imported and registered.
-    _ = AluTest
+    ConfigDB().set(None, "*", "BFM", bfm)
+    print("BFM stored in ConfigDB key 'BFM'")
 
     print("\n" + "Starting UVM test..." + "\n")
-    await uvm_root().run_test("AluTest")
+    await uvm_root().run_test("AluTest", keep_set={ConfigDB}) # keep_set ensures ConfigDB is not cleared after test
 
     print("\n" + "=" * 70)
     print(" " * 25 + "TEST COMPLETE")
