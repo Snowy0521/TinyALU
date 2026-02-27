@@ -2,6 +2,7 @@ import cocotb
 from cocotb.clock import Clock
 from pyuvm import ConfigDB, uvm_root
 
+from config import AGENT_CONFIGS
 from tinyalu_bfm import TinyAluBfm
 from uvm_components import AluTest
 
@@ -25,11 +26,14 @@ async def test_tinyalu(dut):
     await bfm.reset()
     print("DUT reset completed")
 
-    ConfigDB().set(None, "*", "BFM", bfm)
-    print("BFM stored in ConfigDB key 'BFM'")
+    for agent_cfg in AGENT_CONFIGS:
+        ConfigDB().set(None, "*", agent_cfg.bfm_key, bfm)
+    print("BFM handle(s) stored in ConfigDB for configured agent key(s)")
 
+    _ = AluTest
+    
     print("\n" + "Starting UVM test..." + "\n")
-    await uvm_root().run_test("AluTest", keep_set={ConfigDB}) # keep_set ensures ConfigDB is not cleared after test
+    await uvm_root().run_test("AluTest", keep_set={ConfigDB})
 
     print("\n" + "=" * 70)
     print(" " * 25 + "TEST COMPLETE")

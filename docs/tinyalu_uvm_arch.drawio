@@ -1,0 +1,90 @@
+<mxfile host="app.diagrams.net" modified="2026-02-27T00:00:00.000Z" agent="codex" version="24.7.17" editor="draw.io">
+  <diagram id="tinyalu-uvm-arch" name="TinyALU UVM Architecture">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="test" value="test_tinyalu (cocotb)&#xa;- start clock/reset&#xa;- bind bfm via ConfigDB(BFM)&#xa;- run_test(AluTest)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="320" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="utest" value="AluTest&#xa;run_phase: coverage closure loop&#xa;start RandomSeq on seqr (active mode)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="420" y="40" width="300" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="env" value="AluEnv" style="swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="380" y="200" width="1020" height="500" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent" value="AluAgent" style="swimlane;whiteSpace=wrap;html=1;rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" vertex="1" parent="env">
+          <mxGeometry x="20" y="40" width="620" height="420" as="geometry" />
+        </mxCell>
+
+        <mxCell id="seqr" value="uvm_sequencer&#xa;(active mode only)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="agent">
+          <mxGeometry x="20" y="40" width="170" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="driver" value="AluDriver&#xa;get_next_item()&#xa;bfm.send_op()&#xa;item_done()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="agent">
+          <mxGeometry x="230" y="40" width="180" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="monitor" value="AluMonitor&#xa;bfm.get_result()&#xa;timing checks&#xa;ap.write(item)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="agent">
+          <mxGeometry x="230" y="190" width="180" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="scoreboard" value="AluScoreboard&#xa;monitor_fifo.get()&#xa;calc_expected() compare&#xa;pass/fail stats" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="env">
+          <mxGeometry x="700" y="90" width="260" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="coverage" value="AluCoverage&#xa;sample coverpoints/crosses" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="env">
+          <mxGeometry x="700" y="270" width="260" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bfm" value="TinyAluBfm&#xa;send_op/get_result&#xa;_monitor_loop tracks done/latency&#xa;_driver_queue + _monitor_queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="760" y="40" width="320" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dut" value="DUT tinyalu.sv&#xa;op/A/B/start -> result/done" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6e6;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="40" width="250" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" value="run_test" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="1" source="test" target="utest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e2" value="build env" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="1" source="utest" target="env">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e3" value="seq.start(seqr)" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="1" source="utest" target="seqr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e4" value="seq_item_port" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="env" source="seqr" target="driver">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e5" value="send_op()" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="1" source="driver" target="bfm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e6" value="get_result()" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="1" source="bfm" target="monitor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e7" value="pin-level drive/sample" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;" edge="1" parent="1" source="bfm" target="dut">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e8" value="analysis_port" style="endArrow=classic;html=1;rounded=0;dashed=1;strokeWidth=2;" edge="1" parent="env" source="monitor" target="scoreboard">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e9" value="analysis_port" style="endArrow=classic;html=1;rounded=0;dashed=1;strokeWidth=2;" edge="1" parent="env" source="monitor" target="coverage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -6,10 +6,12 @@ from alu_common import AluSeqItem, Ops, calc_expected
 from config import (
     AA_BINS,
     BB_BINS,
+    DEFAULT_BFM_KEY,
     RANDOM_EDGE_BINS_PROBABILITY,
     RANDOM_NON_NOOP_OP_WEIGHTS,
     RANDOM_NON_NOOP_OPS,
     RANDOM_NOOP_PROBABILITY,
+    RANDOM_SEQ_BATCH_ITEMS,
 )
 
 
@@ -85,7 +87,7 @@ class ResetSeq(uvm_sequence):
         print("SEQUENCE: ResetSeq")
         print("=" * 60)
 
-        bfm = ConfigDB().get(self, "", "BFM")
+        bfm = ConfigDB().get(self, "", DEFAULT_BFM_KEY)
 
         print("[ResetSeq] Scenario 1: Reset during MUL operation")
         item = AluSeqItem("reset_mid", Ops.MUL, 0xFF, 0xFF)
@@ -106,7 +108,7 @@ class ResetSeq(uvm_sequence):
 class RandomSeq(uvm_sequence):
     """Random sequence: generates random transactions"""
 
-    num_items = 0
+    num_items = RANDOM_SEQ_BATCH_ITEMS
 
     async def body(self):
         print("\n" + "=" * 60)
