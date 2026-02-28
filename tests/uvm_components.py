@@ -2,7 +2,7 @@ from pyuvm import (
     ConfigDB,
     uvm_agent,
     uvm_analysis_port,
-    uvm_component,
+    uvm_monitor,
     uvm_driver,
     uvm_env,
     uvm_scoreboard,
@@ -11,7 +11,7 @@ from pyuvm import (
     uvm_tlm_analysis_fifo,
 )
 
-from alu_common import AluSeqItem, Ops, calc_expected
+from alu_common import AluSeqItem, Ops, EXPECTED_LATENCY, calc_expected
 from config import (
     AGENT_MODE_ACTIVE,
     AGENT_MODE_PASSIVE,
@@ -29,7 +29,6 @@ class AluDriver(uvm_driver):
         super().build_phase()
         self.agent_cfg = ConfigDB().get(self, "", "AGENT_CFG")
         self.bfm = ConfigDB().get(self, "", self.agent_cfg.bfm_key)
-        self.logger.info(f"Got BFM from ConfigDB key '{self.agent_cfg.bfm_key}'")
 
     async def run_phase(self):
         self.logger.info("Driver run_phase started")
@@ -55,6 +54,7 @@ class AluScoreboard(uvm_scoreboard):
         super().__init__(name, parent)
         self.passed = 0
         self.failed = 0
+        self.noop_checked = 0
 
     def build_phase(self):
         super().build_phase()
@@ -68,6 +68,17 @@ class AluScoreboard(uvm_scoreboard):
 
     def check_result(self, item):
         if item.op == Ops.NOOP:
+            self.noop_checked += 1
+            expected = calc_expected(item.op, item.aa, item.bb)
+            actual = item.result
+            if actual != expected:
+                self.logger.error(
+                    f"FAIL: {item.op.name} A=0x{item.aa:02x} B=0x{item.bb:02x} "
+                    f"Got=0x{actual:04x} Exp=0x{expected:04x}"
+                )
+                self.failed += 1
+            else:
+                self.passed += 1
             return
 
         expected = calc_expected(item.op, item.aa, item.bb)
@@ -87,6 +98,7 @@ class AluScoreboard(uvm_scoreboard):
         print("=" * 60)
         print(f"Passed: {self.passed}")
         print(f"Failed: {self.failed}")
+        print(f"NOOP checked: {self.noop_checked}")
         print(f"Total:  {self.passed + self.failed}")
 
         if self.failed == 0 and self.passed > 0:
@@ -97,17 +109,12 @@ class AluScoreboard(uvm_scoreboard):
         print("=" * 60 + "\n")
 
 
-class AluMonitor(uvm_component):
-    def __init__(self, name, parent):
-        super().__init__(name, parent)
-        self.ap = uvm_analysis_port("ap", self)
-
+class AluMonitor(uvm_monitor):        
     def build_phase(self):
+        super().build_phase()
+        self.ap = uvm_analysis_port("ap", self)
         self.agent_cfg = ConfigDB().get(self, "", "AGENT_CFG")
         self.bfm = ConfigDB().get(self, "", self.agent_cfg.bfm_key)
-        self.logger.info(
-            f"Monitor got BFM from ConfigDB key '{self.agent_cfg.bfm_key}'"
-        )
 
     async def run_phase(self):
         self.logger.info("Monitor run_phase started")
@@ -119,7 +126,7 @@ class AluMonitor(uvm_component):
                 if obs_data.get("done_width", 0) != 0:
                     self.logger.error("NOOP should never drive done high")
             else:
-                expected_latency = 3 if op == Ops.MUL else 1
+                expected_latency = EXPECTED_LATENCY[op]
                 actual_latency = obs_data.get("latency")
                 if actual_latency != expected_latency:
                     self.logger.error(
@@ -138,6 +145,7 @@ class AluMonitor(uvm_component):
 
 class AluAgent(uvm_agent):
     def build_phase(self):
+        super().build_phase()
         self.cfg = ConfigDB().get(self, "", "AGENT_CFG")
         self.seqr = None
         self.driver = None
@@ -164,6 +172,7 @@ class AluAgent(uvm_agent):
 
 class AluEnv(uvm_env):
     def build_phase(self):
+        super().build_phase()
         self.agents = {}
         self.scoreboards = {}
         self.coverages = {}
@@ -197,6 +206,7 @@ class AluEnv(uvm_env):
 
 class AluTest(uvm_test):
     def build_phase(self):
+        super().build_phase()
         self.env = AluEnv("env", self)
 
     async def run_phase(self):

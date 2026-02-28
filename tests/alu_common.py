@@ -10,6 +10,14 @@ class Ops(IntEnum):
     XOR = 3
     MUL = 4
 
+EXPECTED_LATENCY = {
+    Ops.NOOP: 0,
+    Ops.ADD: 1,
+    Ops.AND: 1,
+    Ops.XOR: 1,
+    Ops.MUL: 3,
+}
+
 
 class AluSeqItem(uvm_sequence_item):
     """ALU transaction item"""
@@ -30,11 +38,11 @@ class AluSeqItem(uvm_sequence_item):
 
 def calc_expected(op, aa, bb):
     if op == Ops.ADD:
-        return (aa + bb) & 0xFFFF
+        return (aa + bb) & 0xFFFF # 16-bit result with wrap-around
     if op == Ops.AND:
         return aa & bb
     if op == Ops.XOR:
         return aa ^ bb
     if op == Ops.MUL:
-        return (aa * bb) & 0xFFFF
+        return (aa * bb) & 0xFFFF # 16-bit result with wrap-around
     return 0
